@@ -23,8 +23,12 @@ def load_employees() -> pd.DataFrame:
                LOCATION,
                MANAGER_EMAIL,
                HIRE_DATE,
-               ACTIVE
+               ACTIVE,
+               EMPLOYEE_UID,
+               VERSION_NUMBER,
+               IS_CURRENT
         FROM HRDEMO.EMPLOYEES
+        WHERE IS_CURRENT = TRUE
         ORDER BY LAST_NAME, FIRST_NAME
         """
     ).to_pandas()
@@ -39,7 +43,7 @@ def load_employees() -> pd.DataFrame:
         "TITLE",
         "LOCATION",
         "MANAGER_EMAIL",
-    ]
+        ]
     for col in text_cols:
         if col in df.columns:
             df[col] = df[col].astype("string").fillna("")
@@ -48,6 +52,16 @@ def load_employees() -> pd.DataFrame:
     if "HIRE_DATE" in df.columns:
         # Ensure pandas datetime type (date only is fine; Streamlit DateColumn will handle)
         df["HIRE_DATE"] = pd.to_datetime(df["HIRE_DATE"], errors="coerce")
+    # Versioning meta
+    for meta in ["EMPLOYEE_UID", "VERSION_NUMBER", "IS_CURRENT"]:
+        if meta in df.columns:
+            # Keep types consistent for editor but hide later
+            if meta == "VERSION_NUMBER":
+                df[meta] = pd.to_numeric(df[meta], errors="coerce").fillna(1).astype(int)
+            elif meta == "IS_CURRENT":
+                df[meta] = df[meta].astype("boolean").fillna(True)
+            else:
+                df[meta] = df[meta].astype("string").fillna("")
     return df
 
 
@@ -157,13 +171,15 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
 
     session.sql("BEGIN").collect()
     try:
+        # Soft-delete (archive) by marking previous current row as not current
         for rid in delete_ids:
             session.sql(
-                f"DELETE FROM HRDEMO.EMPLOYEES WHERE EMPLOYEE_ID = '{rid}'"
+                f"UPDATE HRDEMO.EMPLOYEES SET IS_CURRENT = FALSE, UPDATE_USER = CURRENT_USER(), UPDATE_DATE_TIME = CURRENT_TIMESTAMP() WHERE EMPLOYEE_ID = '{rid}'"
             ).collect()
             deleted += 1
 
         for rec in updates:
+            # Create a new version row; mark old as not current
             eid = str(rec.get("EMPLOYEE_ID", "")).replace("'", "''")
             def q(x: str) -> str:
                 return (str(x or "").strip()).replace("'", "''")
@@ -178,24 +194,41 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
             hire = rec.get("HIRE_DATE")
             hire_str = pd.to_datetime(hire).strftime("%Y-%m-%d") if pd.notna(hire) else None
             active_val = "TRUE" if bool(rec.get("ACTIVE")) else "FALSE"
+            # Determine versioning metadata from original row
+            before = orig_by_id.get(rec.get("EMPLOYEE_ID"))
+            uid = q(before.get("EMPLOYEE_UID")) if before and before.get("EMPLOYEE_UID") else None
+            current_version = int(before.get("VERSION_NUMBER")) if before and before.get("VERSION_NUMBER") is not None else 1
+            next_version = current_version + 1
+
+            # Mark previous row as not current
             session.sql(
-                f"""
-                UPDATE HRDEMO.EMPLOYEES
-                   SET FIRST_NAME = '{first}',
-                       LAST_NAME = '{last}',
-                       EMAIL = '{email}',
-                       DEPARTMENT = '{dept}',
-                       FUNCTION = '{func}',
-                       TITLE = '{title}',
-                       LOCATION = '{loc}',
-                       MANAGER_EMAIL = '{mgr}',
-                       HIRE_DATE = {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'},
-                       ACTIVE = {active_val},
-                       UPDATE_USER = CURRENT_USER(),
-                       UPDATE_DATE_TIME = CURRENT_TIMESTAMP()
-                 WHERE EMPLOYEE_ID = '{eid}'
-                """
+                f"UPDATE HRDEMO.EMPLOYEES SET IS_CURRENT = FALSE, UPDATE_USER = CURRENT_USER(), UPDATE_DATE_TIME = CURRENT_TIMESTAMP() WHERE EMPLOYEE_ID = '{eid}'"
             ).collect()
+
+            # Insert new version row
+            if uid:
+                session.sql(
+                    f"""
+                    INSERT INTO HRDEMO.EMPLOYEES
+                        (EMPLOYEE_UID, VERSION_NUMBER, IS_CURRENT,
+                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                    VALUES
+                        ('{uid}', {next_version}, TRUE,
+                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                    """
+                ).collect()
+            else:
+                # Fallback: let EMPLOYEE_UID default if not present
+                session.sql(
+                    f"""
+                    INSERT INTO HRDEMO.EMPLOYEES
+                        (VERSION_NUMBER, IS_CURRENT,
+                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                    VALUES
+                        ({next_version}, TRUE,
+                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                    """
+                ).collect()
             updated += 1
 
         for rec in inserts:
@@ -215,9 +248,11 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
             session.sql(
                 f"""
                 INSERT INTO HRDEMO.EMPLOYEES
-                    (FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                    (VERSION_NUMBER, IS_CURRENT,
+                     FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
                 VALUES
-                    ('{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                    (1, TRUE,
+                     '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
                 """
             ).collect()
             inserted += 1
