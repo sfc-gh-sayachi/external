@@ -315,4 +315,41 @@ with st.container(border=True):
             refresh_data()
             st.rerun()
 
+    # Explicit delete control (soft delete: mark as not current)
+    st.divider()
+    with st.container(border=True):
+        st.subheader("Delete a record")
+        options = src_df.to_dict("records") if not src_df.empty else []
+        if options:
+            to_delete = st.selectbox(
+                "Select employee to delete",
+                options,
+                format_func=lambda r: f"{r.get('FIRST_NAME','')} {r.get('LAST_NAME','')} - {r.get('EMAIL','')}",
+                key="delete_select",
+            )
+            col_d1, col_d2 = st.columns([1, 4])
+            with col_d1:
+                if st.button("Delete selected", type="secondary"):
+                    try:
+                        session = get_active_session()
+                        eid = str(to_delete.get("EMPLOYEE_ID", "")).replace("'", "''")
+                        session.sql(
+                            f"""
+                            UPDATE HRDEMO.EMPLOYEES
+                               SET IS_CURRENT = FALSE,
+                                   DELETE_USER = CURRENT_USER(),
+                                   DELETE_DATE_TIME = CURRENT_TIMESTAMP(),
+                                   UPDATE_USER = CURRENT_USER(),
+                                   UPDATE_DATE_TIME = CURRENT_TIMESTAMP()
+                             WHERE EMPLOYEE_ID = '{eid}' AND IS_CURRENT = TRUE
+                            """
+                        ).collect()
+                        st.success("Employee archived (no longer current).")
+                        refresh_data()
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Failed to delete: {ex}")
+        else:
+            st.info("No employees to delete.")
+
 
