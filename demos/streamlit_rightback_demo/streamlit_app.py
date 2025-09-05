@@ -24,6 +24,8 @@ def load_employees() -> pd.DataFrame:
                MANAGER_EMAIL,
                HIRE_DATE,
                ACTIVE,
+               SKILLS,
+               RESUME_URL,
                EMPLOYEE_UID,
                VERSION_NUMBER,
                IS_CURRENT
@@ -43,6 +45,8 @@ def load_employees() -> pd.DataFrame:
         "TITLE",
         "LOCATION",
         "MANAGER_EMAIL",
+        "SKILLS",
+        "RESUME_URL",
         ]
     for col in text_cols:
         if col in df.columns:
@@ -73,10 +77,13 @@ def validate_rows(df: pd.DataFrame) -> list[str]:
     errors: list[str] = []
     email_set: set[str] = set()
     email_regex = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+    url_regex = re.compile(r"^https?://[\w.-]+(?:/[\w\-./?%&=]*)?$")
     for idx, row in df.iterrows():
         first = str(row.get("FIRST_NAME", "")).strip()
         last = str(row.get("LAST_NAME", "")).strip()
         email = str(row.get("EMAIL", "")).strip().lower()
+        resume_url = str(row.get("RESUME_URL", "")).strip()
+        skills = str(row.get("SKILLS", "")).strip()
         if not first:
             errors.append(f"Row {idx + 1}: FIRST_NAME is required")
         if not last:
@@ -89,6 +96,10 @@ def validate_rows(df: pd.DataFrame) -> list[str]:
             errors.append(f"Row {idx + 1}: duplicate EMAIL '{email}' in editor")
         else:
             email_set.add(email)
+        if resume_url and not url_regex.match(resume_url):
+            errors.append(f"Row {idx + 1}: RESUME_URL must be a valid http(s) URL")
+        if len(skills) > 500:
+            errors.append(f"Row {idx + 1}: SKILLS exceeds 500 characters")
     return errors
 
 
@@ -108,6 +119,8 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
             "TITLE",
             "LOCATION",
             "MANAGER_EMAIL",
+            "SKILLS",
+            "RESUME_URL",
         ]
         for c in text_cols:
             if c in out.columns:
@@ -147,6 +160,8 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
                 "TITLE",
                 "LOCATION",
                 "MANAGER_EMAIL",
+                "SKILLS",
+                "RESUME_URL",
             ]
             for f in fields:
                 if str(rec.get(f, "")).strip() != str(before.get(f, "")).strip():
@@ -191,6 +206,8 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
             title = q(rec.get("TITLE"))
             loc = q(rec.get("LOCATION"))
             mgr = q(normalize_email(rec.get("MANAGER_EMAIL")))
+            skills = q(rec.get("SKILLS"))
+            resume = q(rec.get("RESUME_URL"))
             hire = rec.get("HIRE_DATE")
             hire_str = pd.to_datetime(hire).strftime("%Y-%m-%d") if pd.notna(hire) else None
             active_val = "TRUE" if bool(rec.get("ACTIVE")) else "FALSE"
@@ -211,10 +228,12 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
                     f"""
                     INSERT INTO HRDEMO.EMPLOYEES
                         (EMPLOYEE_UID, VERSION_NUMBER, IS_CURRENT,
-                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE,
+                         SKILLS, RESUME_URL)
                     VALUES
                         ('{uid}', {next_version}, TRUE,
-                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val},
+                         '{skills}', '{resume}')
                     """
                 ).collect()
             else:
@@ -223,10 +242,12 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
                     f"""
                     INSERT INTO HRDEMO.EMPLOYEES
                         (VERSION_NUMBER, IS_CURRENT,
-                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                         FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE,
+                         SKILLS, RESUME_URL)
                     VALUES
                         ({next_version}, TRUE,
-                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                         '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val},
+                         '{skills}', '{resume}')
                     """
                 ).collect()
             updated += 1
@@ -242,6 +263,8 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
             title = q(rec.get("TITLE"))
             loc = q(rec.get("LOCATION"))
             mgr = q(normalize_email(rec.get("MANAGER_EMAIL")))
+            skills = q(rec.get("SKILLS"))
+            resume = q(rec.get("RESUME_URL"))
             hire = rec.get("HIRE_DATE")
             hire_str = pd.to_datetime(hire).strftime("%Y-%m-%d") if pd.notna(hire) else None
             active_val = "TRUE" if bool(rec.get("ACTIVE", True)) else "FALSE"
@@ -249,10 +272,12 @@ def perform_writeback(original_df: pd.DataFrame, edited_df: pd.DataFrame) -> tup
                 f"""
                 INSERT INTO HRDEMO.EMPLOYEES
                     (VERSION_NUMBER, IS_CURRENT,
-                     FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE)
+                     FIRST_NAME, LAST_NAME, EMAIL, DEPARTMENT, FUNCTION, TITLE, LOCATION, MANAGER_EMAIL, HIRE_DATE, ACTIVE,
+                     SKILLS, RESUME_URL)
                 VALUES
                     (1, TRUE,
-                     '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val})
+                     '{first}', '{last}', '{email}', '{dept}', '{func}', '{title}', '{loc}', '{mgr}', {f"TO_DATE('{hire_str}')" if hire_str else 'NULL'}, {active_val},
+                     '{skills}', '{resume}')
                 """
             ).collect()
             inserted += 1
@@ -288,6 +313,8 @@ with st.container(border=True):
             "MANAGER_EMAIL": st.column_config.Column("MANAGER_EMAIL"),
             "HIRE_DATE": st.column_config.DateColumn("HIRE_DATE", format="YYYY-MM-DD"),
             "ACTIVE": st.column_config.CheckboxColumn("ACTIVE", default=True),
+            "SKILLS": st.column_config.Column("SKILLS", help="Comma-separated skills like: SQL, Python, Snowflake"),
+            "RESUME_URL": st.column_config.LinkColumn("RESUME_URL", help="http(s) URL to resume"),
         },
         key="employees_editor",
     )
@@ -351,5 +378,33 @@ with st.container(border=True):
                         st.error(f"Failed to delete: {ex}")
         else:
             st.info("No employees to delete.")
+
+    # Insights and visuals
+    st.divider()
+    with st.container(border=True):
+        st.subheader("Insights")
+        if not src_df.empty:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Employees (current)", len(src_df))
+            with c2:
+                st.metric("Active", int(src_df["ACTIVE"].fillna(False).sum()))
+            with c3:
+                st.metric("Locations", src_df["LOCATION"].fillna("").nunique())
+
+            # Employees per location
+            loc_counts = src_df.groupby(src_df["LOCATION"].fillna("(Unknown)"))[["EMPLOYEE_ID"]].count().rename(columns={"EMPLOYEE_ID": "Count"}).sort_values("Count", ascending=False)
+            st.write("Employees by Location")
+            st.bar_chart(loc_counts)
+
+            # Employees per skill (split comma-separated list)
+            skills_series = src_df["SKILLS"].dropna().astype(str).str.split(",")
+            exploded = skills_series.explode().str.strip().replace("", pd.NA).dropna()
+            if not exploded.empty:
+                skill_counts = exploded.value_counts().to_frame(name="Count")
+                st.write("Employees by Skill")
+                st.bar_chart(skill_counts)
+        else:
+            st.info("No data available for insights.")
 
 
