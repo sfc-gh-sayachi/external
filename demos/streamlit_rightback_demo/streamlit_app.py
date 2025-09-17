@@ -2,10 +2,24 @@ import streamlit as st
 import pandas as pd
 from snowflake.snowpark.context import get_active_session
 import re
+import altair as alt
 
 
 st.set_page_config(page_title="Rightback Demo - Employees", layout="wide")
-st.title("Employees Write-back Demo")
+
+# Lightweight theming for a cleaner look
+st.markdown(
+    """
+    <style>
+      .app-title { font-size: 2rem; font-weight: 700; margin: 0.5rem 0 1rem 0; }
+      .metric-container { background: #f6f9ff; border: 1px solid #e0e7ff; border-radius: 8px; padding: 0.75rem; }
+      .section-title { margin-top: 0.25rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown("<div class='app-title'>Reference Table Write-back Demo</div>", unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -386,24 +400,59 @@ with st.container(border=True):
         if not src_df.empty:
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric("Employees (current)", len(src_df))
+                with st.container(border=True):
+                    st.metric("Employees (current)", len(src_df))
             with c2:
-                st.metric("Active", int(src_df["ACTIVE"].fillna(False).sum()))
+                with st.container(border=True):
+                    st.metric("Active", int(src_df["ACTIVE"].fillna(False).sum()))
             with c3:
-                st.metric("Locations", src_df["LOCATION"].fillna("").nunique())
+                with st.container(border=True):
+                    st.metric("Locations", src_df["LOCATION"].fillna("").nunique())
 
-            # Employees per location
-            loc_counts = src_df.groupby(src_df["LOCATION"].fillna("(Unknown)"))[["EMPLOYEE_ID"]].count().rename(columns={"EMPLOYEE_ID": "Count"}).sort_values("Count", ascending=False)
-            st.write("Employees by Location")
-            st.bar_chart(loc_counts)
+            # Employees per location (Altair bar chart)
+            loc_df = (
+                src_df.assign(LOCATION=src_df["LOCATION"].fillna("(Unknown)"))
+                      .groupby("LOCATION", as_index=False)["EMPLOYEE_ID"].count()
+                      .rename(columns={"EMPLOYEE_ID": "Count"})
+            )
+            st.markdown("<h5 class='section-title'>Employees by Location</h5>", unsafe_allow_html=True)
+            loc_chart = (
+                alt.Chart(loc_df)
+                   .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                   .encode(
+                       x=alt.X('Count:Q', title='Employees'),
+                       y=alt.Y('LOCATION:N', sort='-x', title='Location'),
+                       color=alt.Color('LOCATION:N', legend=None, scale=alt.Scale(scheme='blues')),
+                       tooltip=['LOCATION', 'Count']
+                   )
+                   .properties(height=300)
+            )
+            st.altair_chart(loc_chart, use_container_width=True)
 
-            # Employees per skill (split comma-separated list)
+            # Employees per skill (Altair bar chart)
             skills_series = src_df["SKILLS"].dropna().astype(str).str.split(",")
             exploded = skills_series.explode().str.strip().replace("", pd.NA).dropna()
             if not exploded.empty:
-                skill_counts = exploded.value_counts().to_frame(name="Count")
-                st.write("Employees by Skill")
-                st.bar_chart(skill_counts)
+                skills_df = pd.DataFrame({"Skill": exploded.astype(str)})
+                skill_counts = (
+                    skills_df.groupby("Skill", as_index=False)
+                             .size()
+                             .rename(columns={"size": "Count"})
+                             .sort_values("Count", ascending=False)
+                )
+                st.markdown("<h5 class='section-title'>Employees by Skill</h5>", unsafe_allow_html=True)
+                skill_chart = (
+                    alt.Chart(skill_counts)
+                       .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                       .encode(
+                           x=alt.X('Skill:N', sort='-y', title='Skill'),
+                           y=alt.Y('Count:Q', title='Employees'),
+                           color=alt.Color('Count:Q', legend=None, scale=alt.Scale(scheme='teals')),
+                           tooltip=[alt.Tooltip('Skill:N'), alt.Tooltip('Count:Q')]
+                       )
+                       .properties(height=320)
+                )
+                st.altair_chart(skill_chart, use_container_width=True)
         else:
             st.info("No data available for insights.")
 
