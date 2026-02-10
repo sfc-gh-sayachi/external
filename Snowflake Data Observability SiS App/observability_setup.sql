@@ -40,7 +40,7 @@ SET TARGET_SCHEMA = 'OBSERVABILITY';
 SET SLACK_WEBHOOK_SECRET = 'XXXXXXX/XXXXXXXXXXX/XXXXXXXXXXXXXXXXX';
 
 -- Dashboard URL (for alert buttons)
-SET DASHBOARD_URL = 'https://app.snowflake.com/yv93160/ml89966/#/streamlit-apps/DATA_QUALITY_MONITORING_DB.OBSERVABILITY.PBX3UPJVJ6HKF6D7';
+SET DASHBOARD_URL = 'https://app.snowflake.com/streamlit/us-east-1/dvc29817/#/apps/hteue45rnxkkcxuveebt';
 
 
 -- =============================================================================
