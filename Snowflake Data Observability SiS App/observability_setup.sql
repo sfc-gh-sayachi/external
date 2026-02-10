@@ -37,7 +37,7 @@ SET TARGET_SCHEMA = 'OBSERVABILITY';
 -- Get this from: https://api.slack.com/apps → Incoming Webhooks
 -- Your URL looks like: https://hooks.slack.com/services/XXXXX/XXXXX/XXXXX
 -- The secret is: XXXXX/XXXXX/XXXXX (everything after /services/)
-SET SLACK_WEBHOOK_SECRET = 'T04VAKL2D/B09PTURK932/H8n871LfRP9MPUwAPGF3TsAG';
+SET SLACK_WEBHOOK_SECRET = 'XXXXXXX/XXXXXXXXXXX/XXXXXXXXXXXXXXXXX';
 
 -- Dashboard URL (for alert buttons)
 SET DASHBOARD_URL = 'https://app.snowflake.com/yv93160/ml89966/#/streamlit-apps/DATA_QUALITY_MONITORING_DB.OBSERVABILITY.PBX3UPJVJ6HKF6D7';
